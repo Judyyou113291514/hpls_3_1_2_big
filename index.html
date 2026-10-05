@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>三年級自然：植物大發現 - 探險大富翁</title>
+  
+  <!-- 載入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 載入 React, ReactDOM 與 Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- 全域動畫 CSS 與不捲動設定 -->
+  <style>
+    body { margin: 0; overflow: hidden; background-color: #f3f9f1; font-family: 'Inter', 'Noto Sans TC', sans-serif; }
+    @keyframes zoom-in { 0% { opacity: 0; transform: scale(0.85); } 100% { opacity: 1; transform: scale(1); } }
+    .animate-zoom-in { animation: zoom-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    @keyframes dice-shake { 0% { transform: rotate(0deg) scale(1); } 25% { transform: rotate(15deg) scale(1.1); } 50% { transform: rotate(0deg) scale(1); } 75% { transform: rotate(-15deg) scale(1.1); } 100% { transform: rotate(0deg) scale(1); } }
+    .animate-dice-shake { animation: dice-shake 0.3s infinite; }
+    
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body>
+  
+  <div id="root" class="h-screen w-screen overflow-hidden flex flex-col"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // 探險物資設定 (植物探險家裝備)
+    const EXPLORATION_SUPPLIES = [
+      { id: 'magnifier', name: '放大鏡', cost: 40, icon: '🔍', desc: '仔細觀察葉脈與花蕊細節' },
+      { id: 'notebook', name: '觀察紀錄本', cost: 50, icon: '📔', desc: '畫下植物的美麗特徵' },
+      { id: 'camera', name: '相機', cost: 50, icon: '📷', desc: '拍下繽紛的花朵與果實' },
+      { id: 'watercan', name: '澆水壺', cost: 60, icon: '🚿', desc: '幫乾枯的植物補充水分' },
+      { id: 'gloves', name: '園藝手套', cost: 50, icon: '🧤', desc: '保護雙手不被植物刺傷' }
+    ];
+
+    // 機會命運事件 (植物主題)
+    const CHANCE_EVENTS = [
+      { text: '幫校園裡的盆栽澆水，植物長得很好，老師獎勵你！', coins: 20 },
+      { text: '觀察玫瑰花時不小心被刺到，花錢買 OK 繃。', coins: -10 },
+      { text: '發現了一片形狀像愛心的心形葉，參加自然攝影比賽獲得優勝！', coins: 25 },
+      { text: '誤把大花咸豐草的果實黏在同學衣服上，請同學喝飲料賠罪。', coins: -15 },
+      { text: '撿到完整無缺的木棉花，做成乾燥花賣給手作店。', coins: 15 },
+      { text: '踩到長滿青苔的步道滑倒，掉了一些金幣。', coins: -10 },
+      { text: '成功種出好吃的地瓜葉，帶回家幫媽媽加菜，得到零用錢！', coins: 30 },
+      { text: '爬樹觀察鳥巢，結果褲子破了一個洞，拿去給裁縫師補。', coins: -20 },
+      { text: '參加校園植物導覽，正確回答「互生」與「對生」的差別，獲得獎金。', coins: 20 },
+      { text: '不小心把剛發芽的綠豆芽折斷了，只好重新買種子。', coins: -5 },
+      { text: '用花瓣製作天然的書籤，大家都想跟你買！', coins: 20 },
+      { text: '在樹下乘涼睡著了，醒來發現金幣被猴子偷走幾個。', coins: -15 },
+      { text: '幫社區的花圃除草，鄰居送你大紅包答謝！', coins: 30 },
+      { text: '用放大鏡觀察太陽太久差點燒壞圖鑑，花錢買新書。', coins: -15 }
+    ];
+
+    const CELL_MAP = Array.from({ length: 26 }).map((_, i) => {
+      if (i === 0) return { id: i, type: 'START', label: '起點', icon: '🚩', bg: 'bg-yellow-200 text-yellow-800' };
+      if ([6, 13, 20].includes(i)) return { id: i, type: 'CHANCE', label: '機會命運', icon: '🎁', bg: 'bg-purple-200 text-purple-800' };
+      return { id: i, type: 'QUESTION', label: '隨堂考', icon: '❓', bg: 'bg-green-100 text-green-800' };
+    });
+
+    // 🏆 100 題完整題庫 (植物大發現 - 50是非 + 50選擇)
+    const QUESTION_BANK = [
+      // 是非題 1-50
+      { id: 1, type: 'TF', text: '用手觸摸樹幹，可以感覺到樹皮是粗糙還是平滑的，這是運用觸覺觀察。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '莖摸起來有點粗糙，這是運用手觸摸的觸覺觀察。[cite: 1]' },
+      { id: 2, type: 'TF', text: '為了清楚觀察一朵花的氣味，我們可以把它揉碎後再緊緊貼在鼻子上深呼吸聞。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '聞花有香香的味道是用鼻子嗅覺觀察，但為了安全應避免將不明植物直接貼緊口鼻。[cite: 1]' },
+      { id: 3, type: 'TF', text: '我們可以用眼睛觀察植物，例如看看花朵是什麼顏色、植物具有哪些構造。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '用眼睛觀察可以看見植物的構造顏色或大小等特徵。[cite: 1]' },
+      { id: 4, type: 'TF', text: '植物的身體通常分為根、莖、葉、花、果實、種子等基本構造。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '植物的基本構造包含：根、莖、葉、花、果實、種子。[cite: 1]' },
+      { id: 5, type: 'TF', text: '每一種植物一定都會長得非常高大，並且具有極大的果實。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '不同植物的基本構造大小與外觀皆不相同，例如草本莖通常較為細小、低矮。[cite: 2]' },
+      { id: 6, type: 'TF', text: '葉子通常由「葉片」和「葉柄」兩部分組成。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '葉子包含了葉片及葉柄。[cite: 1, 4]' },
+      { id: 7, type: 'TF', text: '植物的葉片通常是圓柱狀的，這樣可以減少陽光照射的面積。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '葉片通常為扁平狀，有利於增加陽光照射面積。[cite: 1, 4]' },
+      { id: 8, type: 'TF', text: '觀察葉片時，可以從「葉形」、「葉緣」和「葉脈」三個主要構造來分類。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '葉片的主要構造可分為：葉形、葉緣、葉脈。[cite: 1]' },
+      { id: 9, type: 'TF', text: '如果一片葉子的邊緣像鋸子一樣一齒一齒的，我們稱它的葉緣為「平滑狀」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '像鋸子一樣的邊緣稱為「鋸齒狀」，沒有齒痕的才是「平滑狀」。[cite: 1]' },
+      { id: 10, type: 'TF', text: '番石榴的葉脈看起來像網子一樣交錯排列，我們稱為「網狀脈」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '番石榴具有平滑狀的葉緣與網狀脈。[cite: 1]' },
+      { id: 11, type: 'TF', text: '葉子生長在莖上的位置，我們稱它為「節」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '葉子生長在莖上的位置稱為節。[cite: 2]' },
+      { id: 12, type: 'TF', text: '每一種植物的葉子在節上排列的方式（葉序）都是完全一樣的。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '葉子在節上不同的排列方式稱葉序，分為互生、對生、輪生等。[cite: 2, 4]' },
+      { id: 13, type: 'TF', text: '如果一個節上只長出一片葉子，這種排列方式稱為「互生」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '互生的特性是1個節上只長1片葉子。[cite: 2, 4]' },
+      { id: 14, type: 'TF', text: '楓香的葉子在節上是「對生」的排列方式，會兩片兩片相對長出來。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '楓香的葉序屬於「互生」。[cite: 2, 4]' },
+      { id: 15, type: 'TF', text: '黑板樹的一個節上會長出三片或三片以上的葉子，這種生長方式叫做「輪生」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '輪生是1個節上有3片或以上的葉子，例如黑板樹。[cite: 2, 4]' },
+      { id: 16, type: 'TF', text: '植物的莖具有支撐植物身體的功能，可以讓植物爭取陽光。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '植物的莖具有支撐植物身體、讓植物爭取陽光的功能。[cite: 2, 4]' },
+      { id: 17, type: 'TF', text: '樟樹的莖通常較為粗壯、高大，且可以直立向上生長，屬於「草本莖」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '樟樹通常較為粗壯、高大，且可以直立向上生長，屬於「木本莖」。[cite: 2, 4]' },
+      { id: 18, type: 'TF', text: '昭和草的莖比較細小、低矮，這種類型的莖稱為「草本莖」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '昭和草通常較為細小、低矮，可以直立向上生長，屬於「草本莖」。[cite: 2, 4]' },
+      { id: 19, type: 'TF', text: '牽牛花的莖非常柔軟，無法自己直立，必須攀附在其他物體上生長，稱為「藤本莖」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '牽牛花通常較柔軟無法直立，需攀附在物體上生長，屬於「藤本莖」。[cite: 2, 4]' },
+      { id: 20, type: 'TF', text: '不管是木本莖還是草本莖，長大後都一定會變得無法直立，必須攀爬在牆上。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '木本莖與草本莖都可以直立向上生長，只有藤本莖無法直立。[cite: 2, 4]' },
+      { id: 21, type: 'TF', text: '植物的根主要分為「軸根」和「鬚根」兩大類。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '植物的根分為軸根和鬚根。[cite: 2]' },
+      { id: 22, type: 'TF', text: '植物根部最重要的功能是吸收陽光並製造養分。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '根有固定植物和吸收土壤裡水分和養分的功能。[cite: 2]' },
+      { id: 23, type: 'TF', text: '菠菜的根有一條較粗的主根可以深入土壤生長，這種根稱為「軸根」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '軸根有一條較粗的主根可以深入土壤生長，例：莧菜、菠菜。[cite: 2, 4]' },
+      { id: 24, type: 'TF', text: '水稻和青蔥的根看起來細小且像鬍鬚，生長在土壤淺層，這種根稱為「鬚根」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '鬚根細小且像鬍鬚的小根，生長在土壤淺層，例：水稻、蔥、蒜。[cite: 2, 5]' },
+      { id: 25, type: 'TF', text: '遇到強風時，植物的根可以緊緊抓住土壤，把植物固定住。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '根有固定植物的功能。[cite: 2]' },
+      { id: 26, type: 'TF', text: '所有植物的花，都必定同時擁有花萼、花瓣、雄蕊和雌蕊四個部分，稱為完全花。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '大部分花具有這四個構造稱為完全花，若缺少其中一項則稱為不完全花。[cite: 3]' },
+      { id: 27, type: 'TF', text: '一朵「完全花」必須具備花萼、花瓣、雄蕊和雌蕊。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '完全花包含了花瓣、雄蕊和雌蕊，以及花萼。[cite: 3]' },
+      { id: 28, type: 'TF', text: '如果一朵花缺少了花瓣，我們就稱它為「不完全花」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '若缺少了其中一項則稱為不完全花。[cite: 3]' },
+      { id: 29, type: 'TF', text: '花萼通常位在花朵的最外圈，具有保護花蕊和花瓣的功能。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '花萼位於花的最外圈，通常由數個萼片所組成，具有保護花蕊和花瓣的功能。[cite: 3, 5]' },
+      { id: 30, type: 'TF', text: '花瓣是植物的雌性繁殖器官，之後會漸漸發育長大變成「果實」。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '發育成果實的是「雌蕊」，花瓣主要用顏色或氣味吸引動物。[cite: 3, 5]' },
+      { id: 31, type: 'TF', text: '雄蕊是植物的雄性繁殖器官，通常數量較多，能產生花粉。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '雄蕊為植物的雄性繁殖器官，通常數量較多，能產生花粉。[cite: 3]' },
+      { id: 32, type: 'TF', text: '雌蕊通常生長在花的中央，是植物的雌性繁殖器官。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '雌蕊為植物的雌性繁殖器官，通常在花的中央。[cite: 3]' },
+      { id: 33, type: 'TF', text: '植物開花授粉之後會結出果實，果實裡面通常會包著種子。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '植物開花授粉後會結出果實，果實裡面有種子。[cite: 3, 5]' },
+      { id: 34, type: 'TF', text: '有些果實成熟時會具有鮮豔的顏色或特殊氣味，是為了嚇跑動物。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '成熟的果實可能會具有鮮豔的顏色或氣味，是為了吸引動物取食以傳播種子。[cite: 5]' },
+      { id: 35, type: 'TF', text: '動物把甜美的果實吃下肚子，果實裡的種子就有機會被帶到別的地方傳播。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '果實可以協助種子傳播，吸引小動物食用，將種子傳播出去。[cite: 3, 4]' },
+      { id: 36, type: 'TF', text: '在山上種植樹木可以做好水土保持，預防土石流發生。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '植物的功用可以預防土石流、水土保持。[cite: 3]' },
+      { id: 37, type: 'TF', text: '植物對於環境沒有任何幫助，甚至會讓空氣變得更髒。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '植物的功用可以森林浴、淨化空氣。[cite: 3]' },
+      { id: 38, type: 'TF', text: '植物有許多功能與用途，我們必須好好愛護使用，才能讓植物資源生生不息。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '我們必須適當使用，才能讓植物資源生生不息。[cite: 5]' },
+      { id: 39, type: 'TF', text: '所有植物的葉脈特徵都相同，所以只要是綠色的葉片一定都是平行脈。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '葉脈特徵有網狀脈與平行脈等不同類型。[cite: 1]' },
+      { id: 40, type: 'TF', text: '種子掉落到泥土中後，只要在適當的環境中就會發芽，讓植物能繁衍後代。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '種子在適當的環境中就會發芽，讓植物能繁衍後代。[cite: 4, 5]' },
+      { id: 41, type: 'TF', text: '番石榴的葉序排列方式是「對生」，也就是在同一個節上長出兩片葉子。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '番石榴是1個節上有2片葉子的對生。[cite: 2]' },
+      { id: 42, type: 'TF', text: '莖摸起來有點粗糙，這是在利用視覺來觀察植物。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '莖摸起來有點粗糙是用手觸摸，屬於觸覺。[cite: 1]' },
+      { id: 43, type: 'TF', text: '莧菜的根屬於軸根，而蒜頭的根則屬於鬚根。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '莧菜是軸根，蔥、蒜是鬚根。[cite: 2]' },
+      { id: 44, type: 'TF', text: '有些果實會發展出特別的構造來幫助傳播種子，例如尖刺彈跳或是羽絮狀。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '有些植物會發展出特別的構造幫助傳播種子，例如尖刺彈跳、羽絮狀。[cite: 5]' },
+      { id: 45, type: 'TF', text: '木本莖的植物通常較柔軟無法直立，需要攀附在物體上生長。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '通常較柔軟無法直立的是藤本莖。[cite: 2]' },
+      { id: 46, type: 'TF', text: '完全花的最醒目部位通常是花萼，因為它充滿了各種顏色。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '最醒目的部位通常是花瓣，因顏色豐富或能散發氣味。[cite: 3]' },
+      { id: 47, type: 'TF', text: '花瓣具有顏色或氣味，最主要的目的是吸引動物前來傳授花粉。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '花瓣因顏色豐富或能散發氣味，會吸引動物前來傳授花粉。[cite: 3]' },
+      { id: 48, type: 'TF', text: '植物的根只能用來吸收水分，沒有其他的功能。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '根除了吸收水分和養分，還有固定植物的功能。[cite: 2]' },
+      { id: 49, type: 'TF', text: '為了減少水分流失，大部分植物的葉片都是呈現球形的。', options: ['⭕ 對', '❌ 錯'], correctIndex: 1, explanation: '葉片通常為扁平狀，有利於增加陽光照射面積。[cite: 1]' },
+      { id: 50, type: 'TF', text: '葉子包含了「葉片」及「葉柄」，是植物製造養分的重要部位。', options: ['⭕ 對', '❌ 錯'], correctIndex: 0, explanation: '葉子包含了葉片及葉柄，功能包含照射陽光製造養分。[cite: 1, 4]' },
+
+      // 選擇題 51-100
+      { id: 51, type: 'MC', text: '小明在公園觀察花朵，發現有些花具有香香的味道，這是使用了哪一種觀察方法？', options: ['視覺', '聽覺', '嗅覺', '觸覺'], correctIndex: 2, explanation: '用鼻子聞花有香香的味道，屬於嗅覺觀察。[cite: 1]' },
+      { id: 52, type: 'MC', text: '植物的「基本構造」通常包含下列哪六個部分？', options: ['根、莖、葉、花、果實、種子', '頭、手、腳、眼、耳、鼻', '花瓣、花萼、雄蕊、雌蕊、果實、種子', '木本、草本、藤本、軸根、鬚根、氣根'], correctIndex: 0, explanation: '植物的基本構造：根、莖、葉、花、果實、種子。[cite: 1]' },
+      { id: 53, type: 'MC', text: '大部分植物的葉片通常是什麼形狀？這有助於增加陽光照射面積。', options: ['圓柱狀', '扁平狀', '球狀', '立體狀'], correctIndex: 1, explanation: '葉片通常為扁平狀，有利於增加陽光照射面積。[cite: 1]' },
+      { id: 54, type: 'MC', text: '觀察葉片時，可以發現它的主要構造分為哪三個部分？', options: ['葉形、葉緣、葉柄', '葉形、葉柄、葉節', '葉形、葉緣、葉脈', '葉柄、葉節、葉緣'], correctIndex: 2, explanation: '葉片的主要構造可分為：葉形、葉緣、葉脈。[cite: 1]' },
+      { id: 55, type: 'MC', text: '媽媽請你挑選出葉片邊緣像鋸子一樣一齒一齒的植物，這是在觀察葉片的什麼特徵？', options: ['葉脈', '葉緣', '葉形', '葉序'], correctIndex: 1, explanation: '葉片的邊緣稱為葉緣，如鋸齒狀。[cite: 1]' },
+      { id: 56, type: 'MC', text: '葉子生長在莖上的位置稱為什麼？', options: ['葉柄', '葉緣', '節', '根'], correctIndex: 2, explanation: '葉子生長在莖上的位置稱為節。[cite: 2]' },
+      { id: 57, type: 'MC', text: '校園裡的「楓香」，它的一個節上只長出一片葉子，這種葉序稱為什麼？', options: ['互生', '對生', '輪生', '寄生'], correctIndex: 0, explanation: '1個節上只長1片葉子稱為互生，舉例為楓香。[cite: 2]' },
+      { id: 58, type: 'MC', text: '「番石榴」的一個節上會長出兩片相對的葉子，這種排列方式是哪一種葉序？', options: ['輪生', '互生', '對生', '叢生'], correctIndex: 2, explanation: '1個節上有2片葉子稱為對生，舉例為番石榴。[cite: 2]' },
+      { id: 59, type: 'MC', text: '「黑板樹」的一個節上長出3片或3片以上的葉子，這屬於哪一種葉序排列？', options: ['對生', '互生', '輪生', '雙生'], correctIndex: 2, explanation: '1個節上有3片或以上的葉子稱為輪生，舉例為黑板樹。[cite: 2]' },
+      { id: 60, type: 'MC', text: '植物的哪一個構造具有「支撐植物身體」並「讓植物爭取陽光」的功能？', options: ['根部', '莖', '果實', '花萼'], correctIndex: 1, explanation: '植物的莖具有支撐植物身體、讓植物爭取陽光的功能。[cite: 2]' },
+      { id: 61, type: 'MC', text: '「樟樹」的莖較為粗壯、高大，且可以直立向上生長，請問它屬於哪一種莖？', options: ['木本莖', '草本莖', '藤本莖', '氣生莖'], correctIndex: 0, explanation: '通常較為粗壯、高大，且可以直立向上生長的是木本莖，如樟樹。[cite: 2]' },
+      { id: 62, type: 'MC', text: '「昭和草」的莖較為細小、低矮，但依然可以直立向上生長，它屬於哪一種莖？', options: ['木本莖', '草本莖', '藤本莖', '水生莖'], correctIndex: 1, explanation: '通常較為細小、低矮，可以直立向上生長的是草本莖，如昭和草。[cite: 2]' },
+      { id: 63, type: 'MC', text: '「牽牛花」的莖較柔軟無法直立，需攀附在物體上生長，這種莖稱為什麼？', options: ['木本莖', '草本莖', '藤本莖', '攀爬根'], correctIndex: 2, explanation: '通常較柔軟無法直立，需攀附在物體上生長的是藤本莖，如牽牛花。[cite: 2]' },
+      { id: 64, type: 'MC', text: '植物的「根」最主要的功能是什麼？', options: ['吸引昆蟲授粉', '固定植物和吸收水分養分', '進行光合作用製造養分', '結出果實'], correctIndex: 1, explanation: '根有固定植物和吸收土壤裡水分和養分的功能。[cite: 2]' },
+      { id: 65, type: 'MC', text: '爺爺種的「菠菜」有一條較粗的主根，可以深入土壤生長，這稱為什麼根？', options: ['軸根', '鬚根', '氣根', '網狀根'], correctIndex: 0, explanation: '有一條較粗的主根可以深入土壤生長的是軸根，如菠菜。[cite: 2]' },
+      { id: 66, type: 'MC', text: '農夫種的「青蔥」底部有細小且像鬍鬚的小根，生長在淺層土壤，這稱為什麼根？', options: ['軸根', '鬚根', '主根', '樹根'], correctIndex: 1, explanation: '細小且像鬍鬚的小根，生長在土壤淺層的是鬚根，如蔥。[cite: 2]' },
+      { id: 67, type: 'MC', text: '如果一朵花同時擁有花萼、花瓣、雄蕊和雌蕊，我們在科學上稱它為什麼？', options: ['完全花', '不完全花', '超級花', '完美花'], correctIndex: 0, explanation: '大部分花具有花萼、花瓣、雄蕊和雌蕊，稱為完全花。[cite: 3]' },
+      { id: 68, type: 'MC', text: '若一朵花缺少了花萼、花瓣、雄蕊或雌蕊的其中一項，則稱為什麼？', options: ['完全花', '不完全花', '無果花', '雌花'], correctIndex: 1, explanation: '若缺少了其中一項則稱為不完全花。[cite: 3]' },
+      { id: 69, type: 'MC', text: '位在花的最外圈，通常由數個萼片組成，負責保護花蕊和花瓣的是哪個構造？', options: ['花萼', '花瓣', '雄蕊', '雌蕊'], correctIndex: 0, explanation: '花萼位於花的最外圈，具有保護花蕊和花瓣的功能。[cite: 3]' },
+      { id: 70, type: 'MC', text: '花朵中最醒目的部位，能利用豐富顏色或氣味吸引動物來傳授花粉的是？', options: ['花萼', '花瓣', '雄蕊', '葉柄'], correctIndex: 1, explanation: '花瓣通常為花最醒目的部位，因顏色豐富或能散發氣味，會吸引動物前來傳授花粉。[cite: 3]' },
+      { id: 71, type: 'MC', text: '植物花朵內的雄性繁殖器官，通常數量較多且能產生花粉的部位是？', options: ['雌蕊', '雄蕊', '花瓣', '種子'], correctIndex: 1, explanation: '雄蕊為植物的雄性繁殖器官，通常數量較多，能產生花粉。[cite: 3]' },
+      { id: 72, type: 'MC', text: '通常位在花朵中央，是雌性繁殖器官且能發育成果實的部位是？', options: ['雄蕊', '雌蕊', '花萼', '花瓣'], correctIndex: 1, explanation: '雌蕊為植物的雌性繁殖器官，通常在花的中央，可發育成果實。[cite: 3]' },
+      { id: 73, type: 'MC', text: '植物開花授粉後，哪一個部位會漸漸發育成長，並結出裡面含有種子的構造？', options: ['雌蕊發育成果實', '雄蕊發育成葉片', '花瓣發育成莖', '花萼發育成根'], correctIndex: 0, explanation: '雌蕊可發育成果實，果實裡面有種子。[cite: 3]' },
+      { id: 74, type: 'MC', text: '成熟的果實可能會具有鮮豔的顏色或特殊氣味，最主要的目的是什麼？', options: ['準備枯萎掉落', '嚇跑想吃它的鳥類', '吸引動物取食以協助傳播種子', '為了吸收更多水分'], correctIndex: 2, explanation: '成熟的果實可能會具有鮮豔的顏色或氣味，吸引動物取食，將種子傳播出去。[cite: 5]' },
+      { id: 75, type: 'MC', text: '大自然中的植物對環境有哪些重要的功用？', options: ['預防土石流與水土保持', '提供動物食物', '淨化空氣與森林浴', '以上皆是'], correctIndex: 3, explanation: '植物的功用可以預防土石流、水土保持、森林浴、淨化空氣。[cite: 3]' },
+      { id: 76, type: 'MC', text: '葉片的形狀有很多種，例如像愛心的形狀稱為什麼形？', options: ['卵形', '披針形', '心形', '圓形'], correctIndex: 2, explanation: '葉形的舉例包含了卵形、橢圓形、披針形、心形。[cite: 1]' },
+      { id: 77, type: 'MC', text: '將植物種在山坡上，當下暴雨時，植物的哪個部位能抓住泥土發揮水土保持的作用？', options: ['花朵', '葉片', '根部', '果實'], correctIndex: 2, explanation: '根有固定植物的功能，植物可以預防土石流、水土保持。[cite: 2, 3]' },
+      { id: 78, type: 'MC', text: '種子在什麼樣的情況下就會發芽成長，讓植物能繁衍後代？', options: ['被放在冷凍庫裡', '放在沒有水的沙漠', '在適當的環境', '埋在很深且沒有空氣的土裡'], correctIndex: 2, explanation: '種子在適當的環境會發芽成長。[cite: 4]' },
+      { id: 79, type: 'MC', text: '觀察一片葉子時，發現它的脈紋是一條一條平行排列的，這稱為什麼？', options: ['網狀脈', '平行脈', '垂直脈', '十字脈'], correctIndex: 1, explanation: '葉片的脈紋如果是平行的稱為平行脈。[cite: 1]' },
+      { id: 80, type: 'MC', text: '下列哪一種植物的莖是直立向上生長的木本莖？', options: ['牽牛花', '樟樹', '昭和草', '小白菜'], correctIndex: 1, explanation: '木本莖的舉例為樟樹。[cite: 2]' },
+      { id: 81, type: 'MC', text: '關於植物的葉脈，下列哪一種描述是正確的？', options: ['分為網狀脈與平行脈', '分為木本脈與草本脈', '分為對生脈與互生脈', '分為軸脈與鬚脈'], correctIndex: 0, explanation: '葉脈分為網狀脈與平行脈等。[cite: 1]' },
+      { id: 82, type: 'MC', text: '用眼睛看見植物有花朵或果實，這是哪一種觀察方式？', options: ['嗅覺', '觸覺', '視覺', '聽覺'], correctIndex: 2, explanation: '用眼睛觀察植物有花朵或果實屬於視覺。[cite: 1]' },
+      { id: 83, type: 'MC', text: '莧菜的根有一條特別明顯的主根，請問它屬於什麼根？', options: ['鬚根', '藤本根', '軸根', '氣生根'], correctIndex: 2, explanation: '莧菜、菠菜屬於軸根。[cite: 2]' },
+      { id: 84, type: 'MC', text: '下列哪一種植物是屬於1個節上有2片葉子的「對生」葉序？', options: ['楓香', '番石榴', '黑板樹', '水稻'], correctIndex: 1, explanation: '番石榴是對生葉序。[cite: 2]' },
+      { id: 85, type: 'MC', text: '水稻的根沒有明顯的主根，而是細小生長在土壤淺層，這屬於什麼根？', options: ['鬚根', '軸根', '側根', '深根'], correctIndex: 0, explanation: '水稻、蔥、蒜屬於鬚根。[cite: 2]' },
+      { id: 86, type: 'MC', text: '為了讓人類的生活環境更健康，植物發揮了什麼淨化功能？', options: ['淨化土壤', '淨化空氣', '製造塑膠', '製造噪音'], correctIndex: 1, explanation: '植物的功用包含淨化空氣。[cite: 3]' },
+      { id: 87, type: 'MC', text: '觀察植物時，發現一片葉子的邊緣平平滑滑沒有凹凸，這是在描述葉片的什麼？', options: ['葉脈的網狀脈', '葉緣的平滑狀', '葉形的披針形', '葉序的互生'], correctIndex: 1, explanation: '葉片的邊緣稱為葉緣，如平滑狀。[cite: 1]' },
+      { id: 88, type: 'MC', text: '關於牽牛花的莖，下列哪一個敘述最正確？', options: ['粗壯且可以直立生長', '柔軟無法直立，需要攀附在竹竿上', '細小但可以直立生長', '長滿了尖刺與樹皮'], correctIndex: 1, explanation: '牽牛花屬於藤本莖，柔軟無法直立，需攀附在物體上生長。[cite: 2]' },
+      { id: 89, type: 'MC', text: '有些植物的果實會利用「尖刺彈跳」或「羽絮狀」的構造，這是為了做什麼？', options: ['幫助傳播種子', '毒死吃它的昆蟲', '吸收更多空氣', '為了發出聲音'], correctIndex: 0, explanation: '有些植物會發展出特別的構造幫助傳播種子，例如尖刺彈跳、羽絮狀。[cite: 5]' },
+      { id: 90, type: 'MC', text: '龍葵的果實成熟時會從綠色變成紫色，這是為了什麼？', options: ['為了吸收紫外線', '為了吸引小動物食用以傳播種子', '因為它生病了', '準備枯萎的象徵'], correctIndex: 1, explanation: '龍葵果實成熟時變紫色，吸引小動物食用，將種子傳播出去。[cite: 4]' },
+      { id: 91, type: 'MC', text: '「花瓣能保護雄蕊及雌蕊」，這個敘述是描述花瓣的哪一種功能？', options: ['吸引昆蟲', '保護生殖器官', '製造養分', '進行光合作用'], correctIndex: 1, explanation: '花瓣能保護雌蕊及雄蕊，並用顏色或氣味吸引動物。[cite: 5]' },
+      { id: 92, type: 'MC', text: '在森林裡散步，深呼吸感受大自然的氣息，這稱為什麼活動？', options: ['森林浴', '海水浴', '日光浴', '泥漿浴'], correctIndex: 0, explanation: '植物的功用包含森林浴。[cite: 3]' },
+      { id: 93, type: 'MC', text: '果實裡面藏著什麼東西，當掉落到適當的環境就會發芽？', options: ['花粉', '種子', '花萼', '泥土'], correctIndex: 1, explanation: '果實裡面有種子，種子在適當的環境會發芽成長。[cite: 3, 4]' },
+      { id: 94, type: 'MC', text: '植物的莖通常有支撐植物向上的功能，這可以幫植物爭取到更多的什麼？', options: ['水分', '泥土', '陽光', '空氣'], correctIndex: 2, explanation: '莖支撐植物向上生長，爭取更多陽光。[cite: 4]' },
+      { id: 95, type: 'MC', text: '下列哪一個不是我們用來觀察植物的「感官」？', options: ['用眼睛看 (視覺)', '用鼻子聞 (嗅覺)', '用手摸 (觸覺)', '用心電感應'], correctIndex: 3, explanation: '觀察植物的方式有視覺、觸覺、嗅覺。[cite: 1]' },
+      { id: 96, type: 'MC', text: '完全花比不完全花多出了什麼特徵？', options: ['一定比較大朵', '一定比較香', '同時具備花萼、花瓣、雄蕊和雌蕊', '一定會長出毒果實'], correctIndex: 2, explanation: '大部分花具有花萼、花瓣、雄蕊和雌蕊，稱為完全花。[cite: 3]' },
+      { id: 97, type: 'MC', text: '有些花具有豐富的顏色，這是為了吸引誰來傳授花粉？', options: ['人類', '動物或昆蟲', '風', '太陽'], correctIndex: 1, explanation: '因顏色豐富或能散發氣味，會吸引動物前來傳授花粉。[cite: 3]' },
+      { id: 98, type: 'MC', text: '「黑板樹」的葉序為輪生，這代表它在莖的每一個節上會長出幾片葉子？', options: ['1片', '2片', '3片或以上', '完全沒有葉子'], correctIndex: 2, explanation: '輪生是1個節上有3片或以上的葉子。[cite: 2]' },
+      { id: 99, type: 'MC', text: '當我們描述葉子的形狀為「披針形」時，這是在觀察葉片的什麼？', options: ['葉緣', '葉脈', '葉形', '葉柄'], correctIndex: 2, explanation: '葉形的舉例包含了披針形。[cite: 1]' },
+      { id: 100, type: 'MC', text: '為了讓地球上的植物資源能生生不息，我們應該怎麼做？', options: ['大量砍伐樹木', '保護環境並適當使用', '隨意摘折花朵', '把廢水倒進泥土裡'], correctIndex: 1, explanation: '植物有許多功能與用途，我們必須適當使用，才能讓植物資源生生不息。[cite: 5]' }
+    ];
+
+    // 透過關鍵字分析題目所屬單元
+    const getTopic = (text) => {
+      if (/觀察|視覺|觸覺|嗅覺/.test(text)) return '認識植物與觀察';
+      if (/葉片|葉柄|葉形|葉緣|葉脈|互生|對生|輪生|節/.test(text)) return '植物的葉';
+      if (/莖|木本|草本|藤本|根|軸根|鬚根/.test(text)) return '植物的根與莖';
+      return '花、果實、種子與功用';
+    };
+
+    // 隨機打亂題目選項 (不影響是非題)
+    const getShuffledQuestion = (q) => {
+      if (q.type === 'TF') return { ...q };
+
+      let shuffledItems = q.options.map((opt, idx) => ({
+        text: opt,
+        isCorrect: idx === q.correctIndex
+      }));
+
+      for (let i = shuffledItems.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledItems[i], shuffledItems[j]] = [shuffledItems[j], shuffledItems[i]];
+      }
+
+      return {
+        ...q,
+        options: shuffledItems.map(item => item.text),
+        correctIndex: shuffledItems.findIndex(item => item.isCorrect)
+      };
+    };
+
+    function App() {
+      const [gameState, setGameState] = useState('intro'); 
+      const [position, setPosition] = useState(0);
+      const [coins, setCoins] = useState(0); 
+      const [inventory, setInventory] = useState([]); 
+      const [diceResult, setDiceResult] = useState(null);
+      const [isRolling, setIsRolling] = useState(false);
+      const [isWalking, setIsWalking] = useState(false); 
+      
+      const [currentQuestion, setCurrentQuestion] = useState(null);
+      const [chanceEvent, setChanceEvent] = useState(null);
+      const [answerResult, setAnswerResult] = useState(null); 
+      const [message, setMessage] = useState('點擊地圖中央的「擲骰子」開始你的自然探險！');
+      
+      const [history, setHistory] = useState([]);
+      const [availableQuestionIds, setAvailableQuestionIds] = useState([]);
+      const [hasPromptedShop, setHasPromptedShop] = useState(false);
+      const [showShopPrompt, setShowShopPrompt] = useState(false);
+
+      // 初始化不重複題庫陣列
+      useEffect(() => {
+        const ids = QUESTION_BANK.map(q => q.id);
+        for (let i = ids.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [ids[i], ids[j]] = [ids[j], ids[i]];
+        }
+        setAvailableQuestionIds(ids);
+      }, []);
+
+      // 檢查是否達到破關金額 250
+      useEffect(() => {
+        if (gameState === 'playing' && coins >= 250 && !hasPromptedShop && inventory.length < 5) {
+          setShowShopPrompt(true);
+          setHasPromptedShop(true);
+        }
+      }, [coins, gameState, hasPromptedShop, inventory.length]);
+
+      const getCellGridStyle = (index) => {
+        if (index >= 0 && index <= 9) return { gridColumn: index + 1, gridRow: 1 };
+        if (index >= 10 && index <= 12) return { gridColumn: 10, gridRow: index - 8 };
+        if (index >= 13 && index <= 22) return { gridColumn: 23 - index, gridRow: 5 };
+        if (index >= 23 && index <= 25) return { gridColumn: 1, gridRow: 27 - index };
+        return {};
+      };
+
+      const rollDice = () => {
+        if (isRolling || isWalking || currentQuestion || chanceEvent || gameState === 'won' || showShopPrompt) return;
+        
+        setIsRolling(true);
+        setMessage('🎲 擲骰子中...');
+        
+        let rollCount = 0;
+        const rollInterval = setInterval(() => {
+          setDiceResult(Math.floor(Math.random() * 3) + 1);
+          rollCount++;
+          
+          if (rollCount > 10) {
+            clearInterval(rollInterval);
+            const finalRoll = Math.floor(Math.random() * 3) + 1;
+            setDiceResult(finalRoll);
+            setIsRolling(false);
+            startWalking(finalRoll, position);
+          }
+        }, 80);
+      };
+
+      const startWalking = (steps, startPos) => {
+        setIsWalking(true);
+        setMessage(`前進 ${steps} 步！🏃‍♂️`);
+
+        let finalPos = (startPos + steps) % 26;
+        let passStartBonus = (startPos + steps >= 26);
+
+        let stepCount = 0;
+        const walkInterval = setInterval(() => {
+          stepCount++;
+          setPosition(prev => (prev + 1) % 26);
+
+          if (stepCount >= steps) {
+            clearInterval(walkInterval);
+            setIsWalking(false);
+            handleLanding(finalPos, passStartBonus);
+          }
+        }, 350); 
+      };
+
+      const handleLanding = (pos, passStartBonus) => {
+        const cell = CELL_MAP[pos];
+        const prefixMsg = passStartBonus ? '✅ 經過起點，獲得 10 金幣鼓勵！\n' : '';
+
+        if (passStartBonus) {
+          setCoins(prev => prev + 10);
+        }
+
+        if (cell.type === 'START') {
+          setMessage(prefixMsg + '抵達起點！休息一下準備再出發。');
+        } else if (cell.type === 'CHANCE') {
+          const event = CHANCE_EVENTS[Math.floor(Math.random() * CHANCE_EVENTS.length)];
+          setChanceEvent(event);
+          setMessage(prefixMsg + '遇到機會命運了！看看發生什麼事？');
+        } else if (cell.type === 'QUESTION') {
+          let nextId = availableQuestionIds[0];
+          let newAvailableIds = availableQuestionIds.slice(1);
+          
+          if (!nextId) {
+            const ids = QUESTION_BANK.map(q => q.id).sort(() => Math.random() - 0.5);
+            nextId = ids[0];
+            newAvailableIds = ids.slice(1);
+          }
+          
+          setAvailableQuestionIds(newAvailableIds);
+          const rawQ = QUESTION_BANK.find(q => q.id === nextId);
+          setCurrentQuestion(getShuffledQuestion(rawQ));
+          setMessage(prefixMsg + '進入隨堂考區域！答對問題賺取 10 金幣！');
+        }
+      };
+
+      const handleAnswer = (selectedIndex) => {
+        const isCorrect = selectedIndex === currentQuestion.correctIndex;
+        const correctOptionText = currentQuestion.options[currentQuestion.correctIndex];
+        
+        setHistory(prev => [...prev, { ...currentQuestion, isCorrect }]);
+
+        if (isCorrect) {
+          setCoins(prev => prev + 10);
+        }
+        
+        setAnswerResult({
+          isCorrect,
+          correctAnswer: correctOptionText,
+          explanation: currentQuestion.explanation,
+          coinsEarned: isCorrect ? 10 : 0
+        });
+        
+        setCurrentQuestion(null);
+      };
+
+      const closeAnswerResult = () => {
+        if (answerResult.isCorrect) {
+          setMessage('太棒了！你的知識為你賺取了探險基金！繼續前進吧。');
+        } else {
+          setMessage('不要灰心，繼續擲骰子挑戰下一題！');
+        }
+        setAnswerResult(null);
+      };
+
+      const handleChanceClose = () => {
+        if (chanceEvent) {
+          setCoins(prev => Math.max(0, prev + chanceEvent.coins)); 
+          setMessage(chanceEvent.coins > 0 ? '運氣真好！賺到額外金幣了！' : '哎呀！破財消災，下次會更好。');
+          setChanceEvent(null);
+        }
+      };
+
+      const buySupply = (item) => {
+        if (coins >= item.cost) {
+          setCoins(prev => prev - item.cost);
+          const newInventory = [...inventory, item.id];
+          setInventory(newInventory);
+          
+          if (newInventory.length === EXPLORATION_SUPPLIES.length) {
+            setGameState('won');
+          } else {
+            setMessage(`🛒 成功購買 ${item.name}！繼續收集下一個物資吧！`);
+          }
+        }
+      };
+
+      if (gameState === 'intro') {
+        return (
+          <div className="h-full w-full bg-gradient-to-b from-green-50 to-green-200 flex flex-col items-center justify-center p-6 text-gray-800">
+            <div className="max-w-4xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden animate-zoom-in border-t-8 border-green-500 flex flex-col max-h-full">
+              <div className="bg-green-600 text-white py-6 px-8 text-center relative flex-shrink-0">
+                <h1 className="text-3xl md:text-5xl font-black mb-2 relative z-10 tracking-wider">🌿 自然探險大富翁 🌸</h1>
+                <p className="text-lg md:text-xl font-bold opacity-90 relative z-10">百題無死角！三年級：植物大發現</p>
+              </div>
+
+              <div className="p-8 overflow-y-auto no-scrollbar">
+                <h2 className="text-2xl font-black text-green-800 mb-6 flex items-center border-b-4 border-green-200 pb-2">
+                  📜 遊戲玩法
+                </h2>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-base font-medium text-gray-700">
+                  <div className="flex items-start bg-green-50 p-4 rounded-xl border border-green-100 shadow-sm">
+                    <span className="text-2xl mr-3">🎲</span>
+                    <div>
+                      <h3 className="font-bold text-green-800">擲骰子前進 (1~3點)</h3>
+                      <p className="text-sm">點擊地圖中央骰子穩步前進尋找植物。</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start bg-yellow-50 p-4 rounded-xl border border-yellow-100 shadow-sm">
+                    <span className="text-2xl mr-3">💰</span>
+                    <div>
+                      <h3 className="font-bold text-yellow-800">答題賺金幣</h3>
+                      <p className="text-sm">走到「隨堂考」答對問題獲得 <strong>10 金幣</strong>！</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start bg-purple-50 p-4 rounded-xl border border-purple-100 shadow-sm">
+                    <span className="text-2xl mr-3">🎁</span>
+                    <div>
+                      <h3 className="font-bold text-purple-800">機會命運</h3>
+                      <p className="text-sm">遇到好玩有趣的自然植物生態事件。</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start bg-indigo-50 p-4 rounded-xl border border-indigo-100 shadow-sm">
+                    <span className="text-2xl mr-3">🏆</span>
+                    <div>
+                      <h3 className="font-bold text-indigo-800">破關目標</h3>
+                      <p className="text-sm">存滿 <strong>250 金幣</strong>並買齊五樣植物探險裝備！</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 text-center pb-4">
+                  <button 
+                    onClick={() => setGameState('playing')}
+                    className="px-10 py-4 bg-gradient-to-r from-green-500 to-green-600 text-white font-black text-xl rounded-full shadow-xl hover:scale-105 hover:shadow-2xl transition-all transform active:scale-95"
+                  >
+                    🚀 出發探索植物
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (gameState === 'won') {
+        const totalAnswered = history.length;
+        const correctCount = history.filter(h => h.isCorrect).length;
+        const accuracy = totalAnswered > 0 ? Math.round((correctCount / totalAnswered) * 100) : 0;
+        const wrongQuestions = history.filter(h => !h.isCorrect);
+
+        return (
+          <div className="h-full w-full bg-green-50 flex justify-center items-center p-4">
+            <div className="max-w-5xl w-full h-full bg-white rounded-[2rem] shadow-2xl flex flex-col animate-zoom-in overflow-hidden">
+              
+              <div className="bg-gradient-to-r from-green-600 to-emerald-700 text-white py-6 px-10 text-center flex-shrink-0">
+                <h1 className="text-3xl md:text-4xl font-black mb-2 tracking-widest drop-shadow-md">
+                  🏆 植物探險家 結業報告
+                </h1>
+                <p className="text-lg font-medium opacity-90">
+                  恭喜買齊裝備！下滑閱讀你的專屬成績單與「必考重點總複習」。
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-10 space-y-10">
+                
+                <section>
+                  <h2 className="text-xl font-black text-gray-800 border-l-8 border-yellow-400 pl-4 mb-4">📊 探險作答數據</h2>
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div className="bg-blue-50 py-4 rounded-2xl border border-blue-100 shadow-sm">
+                      <div className="text-gray-500 font-bold text-sm">總挑戰題數</div>
+                      <div className="text-4xl font-black text-blue-600">{totalAnswered}</div>
+                    </div>
+                    <div className="bg-green-50 py-4 rounded-2xl border border-green-100 shadow-sm">
+                      <div className="text-gray-500 font-bold text-sm">答對題數</div>
+                      <div className="text-4xl font-black text-green-600">{correctCount}</div>
+                    </div>
+                    <div className="bg-orange-50 py-4 rounded-2xl border border-orange-100 shadow-sm">
+                      <div className="text-gray-500 font-bold text-sm">知識正確率</div>
+                      <div className="text-4xl font-black text-orange-500">{accuracy}%</div>
+                    </div>
+                  </div>
+                </section>
+
+                <section>
+                  <h2 className="text-xl font-black text-gray-800 border-l-8 border-indigo-500 pl-4 mb-4">🤖 弱點診斷與錯題回顧</h2>
+                  {wrongQuestions.length === 0 ? (
+                    <div className="bg-gradient-to-r from-yellow-100 to-yellow-50 text-yellow-800 font-black p-6 rounded-2xl text-center text-xl border border-yellow-200 shadow-inner">
+                      🌟 滿分通關！太完美了！請直接享用下方的重點總複習！
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {wrongQuestions.map((q, idx) => (
+                        <div key={idx} className="bg-white border border-red-200 p-5 rounded-2xl shadow-sm">
+                          <p className="font-bold text-gray-800 text-lg mb-2">Q: {q.text}</p>
+                          <div className="text-green-700 font-black bg-green-50 inline-block px-3 py-1 rounded-lg border border-green-200 mb-2 text-sm">
+                            ✔️ 正確答案：{q.options[q.correctIndex]}
+                          </div>
+                          <div className="text-gray-600 text-sm font-medium bg-gray-50 p-3 rounded-xl border-l-4 border-gray-400">
+                            💡 解析：{q.explanation}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section>
+                  <h2 className="text-2xl font-black text-gray-800 border-l-8 border-emerald-500 pl-4 mb-6">📖 考前必讀：超詳細單元總複習</h2>
+
+                  <div className="bg-white rounded-2xl border border-emerald-200 shadow-md mb-6 overflow-hidden">
+                    <div className="bg-emerald-500 text-white py-3 px-5">
+                      <h3 className="text-xl font-black">🌿 單元一：植物的構造 (根、莖、葉)</h3>
+                    </div>
+                    <div className="p-6 space-y-6 text-gray-800">
+                      <div>
+                        <h4 className="text-lg font-bold text-emerald-800 mb-2 border-b border-emerald-100 pb-1">1. 植物的基本與葉子</h4>
+                        <p className="text-sm font-medium mb-2">植物基本構造：根、莖、葉、花、果實、種子。觀察方式包含視覺、觸覺、嗅覺。</p>
+                        <ul className="text-sm space-y-2 bg-emerald-50 p-3 rounded-lg">
+                          <li><strong>葉片特徵：</strong>呈扁平狀(增加陽光照射)。特徵分：葉形(心形/卵形)、葉緣(平滑/鋸齒)、葉脈(網狀/平行)。</li>
+                          <li><strong>葉序(葉在節上排列)：</strong>互生(1片, 楓香)、對生(2片, 番石榴)、輪生(3片以上, 黑板樹)。</li>
+                        </ul>
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-bold text-emerald-800 mb-2 border-b border-emerald-100 pb-1">2. 莖與根的種類</h4>
+                        <ul className="text-sm space-y-2 bg-gray-50 p-3 rounded-lg">
+                          <li><strong>莖(支撐、爭取陽光)：</strong>木本莖(粗壯直立,樟樹)、草本莖(細小直立,昭和草)、藤本莖(柔軟攀附,牽牛花)。</li>
+                          <li><strong>根(固定、吸收水分養分)：</strong>軸根(粗大主根深入土壤, 菠菜/莧菜)、鬚根(細小如鬚在淺層, 水稻/蔥/蒜)。</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-sky-200 shadow-md overflow-hidden">
+                    <div className="bg-sky-500 text-white py-3 px-5">
+                      <h3 className="text-xl font-black">🌸 單元二：花、果實與植物的功用</h3>
+                    </div>
+                    <div className="p-6 space-y-6 text-gray-800">
+                      <div>
+                        <h4 className="text-lg font-bold text-sky-800 mb-2 border-b border-sky-100 pb-1">1. 花的構造</h4>
+                        <p className="text-sm mb-2"><strong>完全花</strong>包含以下四個構造 (缺少任何一個稱為不完全花)：</p>
+                        <ul className="text-sm space-y-2">
+                          <li><strong>花萼：</strong>最外圈，保護花蕊和花瓣。</li>
+                          <li><strong>花瓣：</strong>最醒目，顏色豐富/散發氣味，吸引動物傳粉，保護雄雌蕊。</li>
+                          <li><strong>雄蕊：</strong>數量較多，產生花粉。</li>
+                          <li><strong>雌蕊：</strong>通常在中央，受粉後發育成長為「果實」。</li>
+                        </ul>
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-bold text-sky-800 mb-2 border-b border-sky-100 pb-1">2. 果實與生活應用</h4>
+                        <p className="text-sm bg-sky-50 p-3 rounded-lg mb-2"><strong>果實與種子：</strong>雌蕊發育成包含種子的果實。果實利用顏色或氣味吸引動物食用(如龍葵變紫色)，或是發展尖刺/羽絮狀，來傳播種子。</p>
+                        <p className="text-sm bg-sky-50 p-3 rounded-lg"><strong>功用：</strong>水土保持、預防土石流、淨化空氣、提供森林浴。植物資源必須適當保護與使用，讓生命生生不息。</p>
+                      </div>
+                    </div>
+                  </div>
+
+                </section>
+
+                <div className="text-center pb-8 pt-4">
+                  <button 
+                    onClick={() => window.location.reload()}
+                    className="px-10 py-4 bg-gray-800 text-white font-black text-xl rounded-full shadow-xl hover:scale-105 transition-transform"
+                  >
+                    🔄 再玩一次
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="h-full flex flex-col p-2 md:p-4 gap-4">
+          
+          <header className="flex-shrink-0 w-full bg-white rounded-xl shadow-sm p-3 flex justify-between items-center border-l-8 border-green-500">
+            <h1 className="text-xl md:text-2xl font-black text-green-800 flex items-center">
+              <span className="text-2xl mr-2 hidden md:inline">🌿</span> 植物大發現 - 探險大富翁
+            </h1>
+            <div className="flex items-center space-x-3">
+              <div className="text-lg md:text-xl font-black text-yellow-700 bg-yellow-100 px-4 py-1.5 rounded-lg border border-yellow-300 flex items-center">
+                🪙 <span className="ml-2">{coins}</span>
+              </div>
+              <div className="text-sm font-bold text-green-700 bg-green-100 px-3 py-1.5 rounded-lg border border-green-300">
+                裝備: {inventory.length}/5
+              </div>
+            </div>
+          </header>
+
+          <main className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
+            
+            <section className="w-full lg:w-2/3 h-full bg-green-700 p-2 md:p-3 rounded-2xl shadow-inner border-4 border-green-800 flex items-center justify-center relative overflow-hidden">
+              <div className="w-full max-h-full aspect-[2/1] grid grid-cols-10 grid-rows-5 gap-1 bg-green-800 p-1 rounded-xl">
+                
+                <div 
+                  className="flex flex-col items-center justify-center bg-[#f3f9f1]/95 rounded-xl m-2 border-4 border-dashed border-green-600/60 shadow-md relative"
+                  style={{ gridColumn: '2 / 10', gridRow: '2 / 5' }}
+                >
+                  <div className="absolute top-2 w-full text-center px-4">
+                    <p className="text-sm md:text-base font-bold text-blue-800 bg-blue-100 rounded-lg py-1 px-2 line-clamp-1">
+                      {message}
+                    </p>
+                  </div>
+                  
+                  <div className={`w-20 h-20 md:w-28 md:h-28 bg-white rounded-2xl flex items-center justify-center text-5xl md:text-6xl font-black shadow-inner mb-3 border-4 border-gray-200 text-green-600 transition-transform ${isRolling ? 'animate-dice-shake' : ''}`}>
+                    {diceResult ? diceResult : '？'}
+                  </div>
+                  
+                  <button 
+                    onClick={rollDice}
+                    disabled={isRolling || isWalking || currentQuestion !== null || chanceEvent !== null || answerResult !== null || showShopPrompt}
+                    className={`px-6 py-2 md:px-8 md:py-3 rounded-full font-black text-lg md:text-xl shadow-md transition-all active:scale-95 ${
+                      isRolling || isWalking || currentQuestion !== null || chanceEvent !== null || answerResult !== null || showShopPrompt
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                        : 'bg-green-500 text-white hover:bg-green-600'
+                    }`}
+                  >
+                    {isRolling ? '轉動中...' : isWalking ? '前進中...' : '🎲 擲骰子'}
+                  </button>
+                </div>
+
+                {CELL_MAP.map((cell, index) => (
+                  <div 
+                    key={index} 
+                    style={getCellGridStyle(index)}
+                    className={`${cell.bg} rounded flex flex-col items-center justify-center border border-white/50 shadow-inner relative`}
+                  >
+                    <span className="text-[9px] font-bold hidden lg:block absolute top-0.5 opacity-70">{cell.label}</span>
+                    <span className="text-xl md:text-3xl">{cell.icon}</span>
+                    
+                    {position === index && (
+                      <div className={`absolute text-3xl md:text-4xl z-10 filter drop-shadow-md ${isWalking ? 'animate-bounce' : 'animate-pulse'}`}>
+                        {isWalking ? '🏃' : '🚶'}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <aside className="w-full lg:w-1/3 h-full flex flex-col gap-4 overflow-y-auto no-scrollbar">
+              
+              <div className="bg-white rounded-2xl shadow-sm p-4 border-t-8 border-yellow-400 flex-shrink-0">
+                <h2 className="text-lg font-black text-yellow-700 mb-2 flex items-center">💡 探險任務</h2>
+                <p className="text-sm text-gray-600 font-bold">
+                  存滿 250 金幣，並在下方商店買齊 5 樣植物探險裝備即可過關領取講義！
+                </p>
+              </div>
+
+              <div className={`bg-white rounded-2xl shadow-sm p-4 border-t-8 flex-1 flex flex-col transition-colors ${coins >= 250 && inventory.length < 5 ? 'border-yellow-400 bg-yellow-50' : 'border-indigo-400'}`}>
+                <h2 className="text-lg font-black text-indigo-800 mb-1 flex items-center">🛒 裝備商店</h2>
+                <div className="flex-1 overflow-y-auto no-scrollbar space-y-2 mt-2">
+                  {EXPLORATION_SUPPLIES.map(item => {
+                    const owned = inventory.includes(item.id);
+                    const canAfford = coins >= item.cost;
+                    return (
+                      <div key={item.id} className={`flex items-center justify-between p-2.5 rounded-xl border-2 ${owned ? 'bg-gray-50 border-gray-200' : 'bg-indigo-50 border-indigo-100'}`}>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-2xl">{item.icon}</span>
+                          <div className="flex flex-col">
+                            <span className={`font-black text-base ${owned ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{item.name}</span>
+                            <span className="text-[10px] text-gray-500 leading-tight hidden sm:block">{item.desc}</span>
+                          </div>
+                        </div>
+                        {owned ? (
+                          <span className="text-xs text-green-600 font-black bg-green-100 px-2 py-1 rounded">已擁有</span>
+                        ) : (
+                          <button 
+                            onClick={() => buySupply(item)}
+                            disabled={!canAfford || isWalking || isRolling}
+                            className={`px-3 py-1.5 rounded-lg text-sm font-black shadow-sm ${canAfford && !isWalking && !isRolling ? 'bg-indigo-500 text-white hover:bg-indigo-600 active:scale-95' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                          >
+                            {item.cost} 🪙
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+            </aside>
+          </main>
+
+          {showShopPrompt && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full animate-zoom-in text-center p-8 border-t-[10px] border-yellow-400">
+                <div className="text-6xl mb-3 animate-bounce">🎊</div>
+                <h3 className="text-2xl font-black text-yellow-600 mb-3">金幣達標！</h3>
+                <p className="text-base text-gray-700 font-bold mb-5 bg-yellow-50 p-4 rounded-xl border border-yellow-100">
+                  太厲害了！你已經收集滿 <strong>250 枚金幣</strong>！快把商店裡的裝備全包了吧！
+                </p>
+                <button 
+                  onClick={() => setShowShopPrompt(false)}
+                  className="w-full py-3 bg-yellow-500 text-yellow-900 rounded-xl font-bold text-lg hover:bg-yellow-400 shadow-md active:scale-95 transition-transform"
+                >
+                  去商店大採購 🛒
+                </button>
+              </div>
+            </div>
+          )}
+
+          {chanceEvent && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full animate-zoom-in text-center p-6 border-t-[10px] border-purple-500">
+                <div className="text-5xl mb-3">🎁</div>
+                <h3 className="text-2xl font-black text-purple-800 mb-3">機會命運</h3>
+                <p className="text-base text-gray-700 font-bold mb-4 bg-purple-50 p-4 rounded-xl text-left leading-relaxed">
+                  {chanceEvent.text}
+                </p>
+                <div className={`text-3xl font-black mb-6 ${chanceEvent.coins > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {chanceEvent.coins > 0 ? `+${chanceEvent.coins}` : chanceEvent.coins} 金幣
+                </div>
+                <button 
+                  onClick={handleChanceClose}
+                  className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold text-lg hover:bg-purple-700 shadow-md active:scale-95 transition-transform"
+                >
+                  確定
+                </button>
+              </div>
+            </div>
+          )}
+
+          {currentQuestion && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full flex flex-col max-h-[90vh] animate-zoom-in border-t-[10px] border-green-500 overflow-hidden">
+                <div className="bg-green-100 px-5 py-3 flex justify-between items-center flex-shrink-0">
+                  <h3 className="text-xl font-black text-green-800">📚 自然隨堂考</h3>
+                  <span className="bg-yellow-400 text-yellow-900 px-3 py-1 rounded-full text-xs font-black shadow-sm">答對 +10 金幣</span>
+                </div>
+                <div className="p-6 overflow-y-auto no-scrollbar">
+                  <p className="text-xl text-gray-800 font-bold mb-6 leading-snug">
+                    {currentQuestion.text}
+                  </p>
+                  <div className="space-y-3">
+                    {currentQuestion.options.map((option, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleAnswer(index)}
+                        className="w-full text-left p-4 rounded-xl border-2 border-gray-200 hover:border-green-400 hover:bg-green-50 transition-colors font-bold text-gray-700 text-base md:text-lg flex items-center group shadow-sm active:scale-95"
+                      >
+                        {currentQuestion.type === 'MC' && (
+                          <span className="w-8 h-8 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center mr-3 group-hover:bg-green-500 group-hover:text-white transition-colors flex-shrink-0 text-sm">
+                            {String.fromCharCode(65 + index)}
+                          </span>
+                        )}
+                        <span className={currentQuestion.type === 'TF' ? 'w-full text-center text-2xl' : 'flex-1 leading-tight'}>{option}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {answerResult && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+              <div className={`bg-white rounded-3xl shadow-2xl max-w-lg w-full animate-zoom-in border-t-[10px] ${answerResult.isCorrect ? 'border-green-500' : 'border-red-500'} overflow-hidden`}>
+                <div className={`px-5 py-3 flex justify-between items-center ${answerResult.isCorrect ? 'bg-green-100' : 'bg-red-100'}`}>
+                  <h3 className={`text-xl font-black ${answerResult.isCorrect ? 'text-green-800' : 'text-red-800'}`}>
+                    {answerResult.isCorrect ? '🎉 答對了！' : '❌ 答錯了...'}
+                  </h3>
+                  {answerResult.isCorrect && (
+                    <span className="bg-yellow-400 text-yellow-900 px-3 py-1 rounded-full text-xs font-black shadow-sm">+{answerResult.coinsEarned} 金幣</span>
+                  )}
+                </div>
+                <div className="p-6">
+                  {!answerResult.isCorrect && (
+                    <div className="bg-red-50 border border-red-200 p-4 rounded-xl mb-4">
+                      <p className="text-red-800 font-bold mb-1 text-sm">💡 正確答案：</p>
+                      <p className="text-lg font-black text-red-600 pl-2">{answerResult.correctAnswer}</p>
+                    </div>
+                  )}
+                  <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mb-6">
+                    <p className="text-blue-800 font-bold mb-1 text-sm">📖 重點解析：</p>
+                    <p className="text-base text-gray-700 font-medium leading-relaxed pl-2">{answerResult.explanation}</p>
+                  </div>
+                  <button 
+                    onClick={closeAnswerResult}
+                    className={`w-full py-3 text-white rounded-xl font-bold text-lg shadow-md active:scale-95 transition-transform ${answerResult.isCorrect ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+                  >
+                    繼續探險
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
